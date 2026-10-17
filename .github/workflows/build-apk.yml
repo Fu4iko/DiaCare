@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install dependencies
+        run: npm install
+      - name: Create Android project
+        run: |
+          npx cap add android
+          pip install --break-system-packages pillow || pip install pillow
+          python3 - <<'PY'
+          from PIL import Image
+          import os
+          im = Image.open("icon.png").convert("RGB")
+          res = "android/app/src/main/res"
+          os.system("rm -rf " + res + "/mipmap-anydpi-v26")
+          for d, s in [("mdpi",48),("hdpi",72),("xhdpi",96),("xxhdpi",144),("xxxhdpi",192)]:
+              os.makedirs(res + "/mipmap-" + d, exist_ok=True)
+              for n in ["ic_launcher","ic_launcher_round","ic_launcher_foreground"]:
+                  im.resize((s, s), Image.LANCZOS).save(res + "/mipmap-" + d + "/" + n + ".png")
+          PY
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>\n</manifest>#' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk DiaCare.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DiaCare-APK
+          path: DiaCare.apk
